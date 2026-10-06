@@ -1,6 +1,6 @@
 [package]
 name = "pulse-tui"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "Try the Pulse API from your terminal"
 license = "MIT"
@@ -16,3 +16,11 @@ serde_json = "1.0.151"
 throbber-widgets-tui = "0.11"
 tui-input = "0.15"
 uuid = { version = "1.27.0", features = ["v4"] }
+
+# Smaller and slightly faster release binaries. Ratatui's panic hook restores
+# the terminal before an abort.
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
