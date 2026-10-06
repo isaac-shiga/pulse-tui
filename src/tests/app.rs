@@ -390,3 +390,22 @@ fn opening_an_order_fetches_it_on_the_key_press() {
     ));
     assert!(screen(&app).contains("Loading the order"));
 }
+
+#[test]
+fn a_zero_amount_shows_no_price_and_sends_nothing() {
+    let mut app = onramp_with_quote();
+    press(&mut app, KeyCode::Right); // type in USDT, which has no local minimum
+    app.take_jobs();
+    press(&mut app, KeyCode::Delete);
+    type_text(&mut app, "0");
+
+    let s = screen(&app);
+    assert!(!s.contains("Fetching a live price"), "{s}");
+    assert!(!s.contains("97.499512 USDT"), "{s}");
+    app.tick(app.now + Duration::from_secs(1));
+    assert!(
+        !app.take_jobs()
+            .iter()
+            .any(|j| matches!(j, Job::Quote { .. }))
+    );
+}

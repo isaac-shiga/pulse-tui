@@ -370,6 +370,9 @@ impl App {
                 if self.flow.amount_limit().is_some() {
                     return self.toast(ToastKind::Error, "Change the amount to fit the limit.");
                 }
+                if !self.flow.priceable() {
+                    return self.toast(ToastKind::Error, "Type an amount to get a quote.");
+                }
                 if self.flow.quote_loading || self.flow.quote_due.is_some() {
                     return self.toast(ToastKind::Info, "Getting a quote…");
                 }

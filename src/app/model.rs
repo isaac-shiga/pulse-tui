@@ -432,9 +432,15 @@ impl Flow {
         }
     }
 
+    /// True when the typed amount is above zero and inside the limits the
+    /// app can check, so it is worth asking Pulse for a price.
+    pub fn priceable(&self) -> bool {
+        self.typed_amount().is_some_and(|a| a > 0.0) && self.amount_limit().is_none()
+    }
+
     pub(super) fn quote_request(&self) -> Option<QuoteRequest> {
         let amount = self.amount.value().trim();
-        if self.typed_amount().is_none_or(|a| a <= 0.0) || self.amount_limit().is_some() {
+        if !self.priceable() {
             return None;
         }
         let (source, destination) = self.currencies();

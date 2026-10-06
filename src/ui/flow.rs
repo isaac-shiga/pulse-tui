@@ -303,8 +303,8 @@ impl Widget for QuoteCard<'_> {
         let fl = self.flow;
         let limit = fl.amount_limit();
         // An amount outside the limits gets no request, so nothing is pending for it.
-        let pending = (fl.quote_loading || fl.quote_due.is_some()) && limit.is_none();
-        let quote = fl.quote.as_ref().filter(|_| limit.is_none());
+        let pending = (fl.quote_loading || fl.quote_due.is_some()) && fl.priceable();
+        let quote = fl.quote.as_ref().filter(|_| fl.priceable());
         let block = panel("Quote", pending.then(|| self.spinner.clone()));
         let inner = block.inner(area);
         block.render(area, buf);
