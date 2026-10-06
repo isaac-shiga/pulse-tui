@@ -133,6 +133,9 @@ pub struct Tracker {
     pub error: Option<ApiError>,
     /// The value `c` copies.
     pub pick: Copyable,
+    /// False while the order is the summary from the order list, before
+    /// the first full fetch.
+    pub fresh: bool,
 }
 
 /// A value on the order screen the user can copy.
@@ -172,6 +175,16 @@ impl Tracker {
             next_poll: first_poll,
             error: None,
             pick,
+            fresh: true,
+        }
+    }
+
+    /// A tracker for an order from the order list. It fetches the full
+    /// order at once.
+    pub(crate) fn from_list(order: Order, now: Instant) -> Self {
+        Self {
+            fresh: false,
+            ..Self::new(order, Some(now))
         }
     }
 
@@ -225,6 +238,7 @@ impl Tracker {
                 self.next_poll = (!order.status.is_terminal()).then_some(now + POLL);
                 self.order = order;
                 self.error = None;
+                self.fresh = true;
             }
             Err(e) => {
                 let wait = if e.code == "rate_limited" { 60 } else { 10 };
@@ -547,6 +561,8 @@ pub enum Msg {
     Created(Result<Order, ApiError>),
     Order {
         target: Target,
+        /// The order asked for, so a late answer for another order is dropped.
+        id: String,
         res: Result<Order, ApiError>,
     },
     Orders {

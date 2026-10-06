@@ -146,12 +146,14 @@ impl App {
                     }
                 }
             }
-            Msg::Order { target, res } => {
+            Msg::Order { target, id, res } => {
                 let tracker = match target {
                     Target::Flow => &mut self.flow.tracker,
                     Target::Detail => &mut self.orders.detail,
                 };
-                if let Some(t) = tracker {
+                if let Some(t) = tracker
+                    && t.order.id == id
+                {
                     t.update(res, now);
                 }
             }

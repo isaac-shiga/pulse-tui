@@ -37,6 +37,7 @@ pub fn spawn(job: Job, client: Client, sender: Sender<Msg>) {
             Job::Order { target, id } => Msg::Order {
                 target,
                 res: client.order(&id),
+                id,
             },
             Job::Orders { kind, cursor } => Msg::Orders {
                 append: cursor.is_some(),

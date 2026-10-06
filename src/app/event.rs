@@ -610,7 +610,7 @@ impl App {
             }
             KeyCode::Enter => {
                 if let Some(order) = self.orders.items.get(self.orders.sel) {
-                    self.orders.detail = Some(Tracker::new(order.clone(), Some(self.now)));
+                    self.orders.detail = Some(Tracker::from_list(order.clone(), self.now));
                 }
             }
             KeyCode::Char('r') => self.load_orders(None),

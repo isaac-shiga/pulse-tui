@@ -132,7 +132,11 @@ fn funding(f: &mut Frame, area: Rect, t: &Tracker, app: &App) {
             // Pulse issues the account only while the order waits for money.
             None if awaiting => lines.push(Line::from(vec![
                 colored(format!("{}  ", spinner(app)), ACCENT),
-                dim("Opening an account for this order…"),
+                dim(if t.fresh {
+                    "Opening an account for this order…"
+                } else {
+                    "Loading the order…"
+                }),
             ])),
             None => {}
             Some(number) => {
@@ -169,7 +173,11 @@ fn funding(f: &mut Frame, area: Rect, t: &Tracker, app: &App) {
         match fa.deposit_address {
             None if awaiting => lines.push(Line::from(vec![
                 colored(format!("{}  ", spinner(app)), ACCENT),
-                dim("Waiting for the deposit address…"),
+                dim(if t.fresh {
+                    "Waiting for the deposit address…"
+                } else {
+                    "Loading the order…"
+                }),
             ])),
             None => {}
             Some(address) => {
@@ -213,7 +221,13 @@ fn funding(f: &mut Frame, area: Rect, t: &Tracker, app: &App) {
 
 fn status(f: &mut Frame, area: Rect, t: &Tracker, app: &App) {
     let o = &t.order;
-    let block = panel("Progress");
+    // The list sends a summary. The spinner shows until the full order lands.
+    let title = if t.fresh {
+        "Progress".to_string()
+    } else {
+        format!("Progress {}", spinner(app))
+    };
+    let block = panel(&title);
     let inner = block.inner(area);
     f.render_widget(block, area);
     let w = inner.width;

@@ -341,3 +341,23 @@ fn a_settled_order_does_not_wait_for_a_payment_account() {
     assert!(!s.contains("Opening an account"), "{s}");
     assert!(!s.contains("Send exactly"), "{s}");
 }
+
+#[test]
+fn a_late_answer_for_another_order_is_dropped() {
+    let mut app = app();
+    app.screen = crate::app::Screen::Orders;
+    app.orders.detail = Some(Tracker::from_list(order(Status::AwaitingPayment), app.now));
+
+    let mut other = order(Status::Completed);
+    other.id = "o2".into();
+    app.on_msg(Msg::Order {
+        target: crate::app::Target::Detail,
+        id: "o2".into(),
+        res: Ok(other),
+    });
+
+    let detail = app.orders.detail.as_ref().unwrap();
+    assert_eq!(detail.order.id, "o1");
+    assert_eq!(detail.order.status, Status::AwaitingPayment);
+    assert!(screen(&app).contains("Loading the order"));
+}
