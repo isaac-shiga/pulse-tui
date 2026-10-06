@@ -25,14 +25,14 @@ pub(super) fn render(f: &mut Frame, area: Rect, app: &App) -> Hints {
         field(
             "Test key",
             s.focus == 1,
-            input(&s.test_key, s.focus == 1, "sk_test_…", 36),
+            input(&s.test_key, s.focus == 1, "Paste your test key", 36),
             None,
         ),
         Line::default(),
         field(
             "Live key",
             s.focus == 2,
-            input(&s.live_key, s.focus == 2, "sk_live_…", 36),
+            input(&s.live_key, s.focus == 2, "Paste your live key", 36),
             None,
         ),
     ];

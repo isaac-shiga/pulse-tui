@@ -2,6 +2,9 @@
 name = "pulse-tui"
 version = "0.1.0"
 edition = "2024"
+description = "Try the Pulse API from your terminal"
+license = "MIT"
+repository = "https://github.com/isaac-shiga/pulse-tui"
 
 [dependencies]
 base64 = "0.23.1"

@@ -33,12 +33,10 @@ pub struct Config {
 
 impl Config {
     pub fn path() -> PathBuf {
-        let base = std::env::var_os("XDG_CONFIG_HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| {
-                PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".config")
-            });
-        base.join("pulse-tui").join("config.json")
+        let var = |name| std::env::var_os(name).map(PathBuf::from);
+        config_dir(var("XDG_CONFIG_HOME"), var("HOME"), var("APPDATA"))
+            .join("pulse-tui")
+            .join("config.json")
     }
 
     pub fn load() -> Self {
@@ -80,4 +78,16 @@ impl Config {
             saved.clone()
         }
     }
+}
+
+/// `$XDG_CONFIG_HOME`, then `~/.config`, then `%APPDATA%` on Windows, where
+/// `HOME` is usually unset.
+pub(crate) fn config_dir(
+    xdg: Option<PathBuf>,
+    home: Option<PathBuf>,
+    appdata: Option<PathBuf>,
+) -> PathBuf {
+    xdg.or_else(|| home.map(|h| h.join(".config")))
+        .or(appdata)
+        .unwrap_or_default()
 }
