@@ -116,6 +116,22 @@ pub enum Field {
     Account,
 }
 
+impl Field {
+    /// A free text field, where the arrow keys move the cursor.
+    pub fn is_text(self) -> bool {
+        matches!(
+            self,
+            Field::Name
+                | Field::Email
+                | Field::Nin
+                | Field::Bvn
+                | Field::Address
+                | Field::Bank
+                | Field::Account
+        )
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mark {
     Done,
@@ -179,12 +195,12 @@ impl Tracker {
         }
     }
 
-    /// A tracker for an order from the order list. It fetches the full
-    /// order at once.
-    pub(crate) fn from_list(order: Order, now: Instant) -> Self {
+    /// A tracker for an order from the order list. The caller fetches the
+    /// full order.
+    pub(crate) fn from_list(order: Order) -> Self {
         Self {
             fresh: false,
-            ..Self::new(order, Some(now))
+            ..Self::new(order, None)
         }
     }
 
@@ -399,7 +415,7 @@ impl Flow {
     }
 
     fn typed_amount(&self) -> Option<f64> {
-        self.amount.value.trim().parse().ok()
+        self.amount.value().trim().parse().ok()
     }
 
     /// The limit the typed amount breaks. The app checks only limits in the
@@ -417,7 +433,7 @@ impl Flow {
     }
 
     pub(super) fn quote_request(&self) -> Option<QuoteRequest> {
-        let amount = self.amount.value.trim();
+        let amount = self.amount.value().trim();
         if self.typed_amount().is_none_or(|a| a <= 0.0) || self.amount_limit().is_some() {
             return None;
         }
@@ -433,13 +449,13 @@ impl Flow {
     }
 
     pub(super) fn first_invalid_party(&self) -> Option<Field> {
-        if self.name.value.trim().is_empty() {
+        if self.name.value().trim().is_empty() {
             Some(Field::Name)
-        } else if !self.email.value.contains('@') {
+        } else if !self.email.value().contains('@') {
             Some(Field::Email)
-        } else if self.nin.value.len() != 11 {
+        } else if self.nin.value().len() != 11 {
             Some(Field::Nin)
-        } else if self.bvn.value.len() != 11 {
+        } else if self.bvn.value().len() != 11 {
             Some(Field::Bvn)
         } else {
             None
@@ -448,10 +464,10 @@ impl Flow {
 
     pub fn person(&self) -> Person {
         Person {
-            name: self.name.value.trim().into(),
-            email: self.email.value.trim().into(),
-            nin: self.nin.value.clone(),
-            bvn: self.bvn.value.clone(),
+            name: self.name.value().trim().into(),
+            email: self.email.value().trim().into(),
+            nin: self.nin.value().to_string(),
+            bvn: self.bvn.value().to_string(),
         }
     }
 

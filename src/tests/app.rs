@@ -346,7 +346,7 @@ fn a_settled_order_does_not_wait_for_a_payment_account() {
 fn a_late_answer_for_another_order_is_dropped() {
     let mut app = app();
     app.screen = crate::app::Screen::Orders;
-    app.orders.detail = Some(Tracker::from_list(order(Status::AwaitingPayment), app.now));
+    app.orders.detail = Some(Tracker::from_list(order(Status::AwaitingPayment)));
 
     let mut other = order(Status::Completed);
     other.id = "o2".into();
@@ -359,5 +359,34 @@ fn a_late_answer_for_another_order_is_dropped() {
     let detail = app.orders.detail.as_ref().unwrap();
     assert_eq!(detail.order.id, "o1");
     assert_eq!(detail.order.status, Status::AwaitingPayment);
+    assert!(screen(&app).contains("Loading the order"));
+}
+
+#[test]
+fn arrow_keys_move_the_cursor_in_a_text_field() {
+    let mut app = onramp_with_quote();
+    press(&mut app, KeyCode::Enter); // payer, focus on the saved selector
+    press(&mut app, KeyCode::Down); // name
+    type_text(&mut app, "Ada Ob");
+    press(&mut app, KeyCode::Left);
+    press(&mut app, KeyCode::Left);
+    type_text(&mut app, "x");
+
+    assert_eq!(app.flow.name.value(), "Ada xOb");
+    assert!(app.flow.saved.is_none());
+}
+
+#[test]
+fn opening_an_order_fetches_it_on_the_key_press() {
+    let mut app = app();
+    app.screen = crate::app::Screen::Orders;
+    app.orders.items = vec![order(Status::AwaitingPayment)];
+
+    press(&mut app, KeyCode::Enter);
+
+    assert!(matches!(
+        app.take_jobs().as_slice(),
+        [Job::Order { id, .. }] if id == "o1"
+    ));
     assert!(screen(&app).contains("Loading the order"));
 }

@@ -22,7 +22,7 @@ After an order, press `s` to save the payer or recipient. Saved profiles, keys a
 | Key | Action |
 | --- | --- |
 | `↑` `↓` / `tab` | Move between fields |
-| `←` `→` | Change a choice, or switch between typing the send or receive amount |
+| `←` `→` | Change a choice, move the cursor in a text field, or switch between typing the send or receive amount |
 | `enter` | Continue |
 | `esc` | Back |
 | `c` | On an order, copy the highlighted value. Pick it with `↑` `↓` |

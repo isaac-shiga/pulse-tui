@@ -5,10 +5,11 @@ use std::thread;
 
 use base64::Engine;
 
+use super::Incoming;
 use crate::api::Client;
 use crate::app::{Job, Msg};
 
-pub fn spawn(job: Job, client: Client, sender: Sender<Msg>) {
+pub fn spawn(job: Job, client: Client, sender: Sender<Incoming>) {
     if let Job::Copy(text) = job {
         copy(&text);
         return;
@@ -45,7 +46,7 @@ pub fn spawn(job: Job, client: Client, sender: Sender<Msg>) {
             },
             Job::Copy(_) => unreachable!(),
         };
-        let _ = sender.send(message);
+        let _ = sender.send(Incoming::Msg(Box::new(message)));
     });
 }
 

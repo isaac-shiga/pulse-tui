@@ -5,16 +5,16 @@ use ratatui::{
 
 use crate::api::Env;
 use crate::app::sandbox::{self, OUTCOMES};
-use crate::app::{ASSETS, App, Dir, Field, Input, Limit, Step, networks_for};
+use crate::app::{ASSETS, App, Dir, Field, Flow, Input, Limit, Step, networks_for};
 
 use super::components::{
-    INPUT_WIDTH, divider, field, heading, input, keycap, pair, panel, segmented, selector,
-    under_field,
+    Countdown, INPUT_WIDTH, Ledger, Row, field, heading, input, keycap, panel, segmented, selector,
+    text_box, under_field,
 };
-use super::format::{clock, group, mask, money, network_name};
+use super::format::{group, mask, money, network_name};
 use super::orders::{order_heading, order_view};
 use super::{
-    ACCENT, BG, ERR, FAINT, Hints, LINE, OK, TEXT, WARN, bold, colored, dim, faint, spinner,
+    ACCENT, BG, DIM, ERR, FAINT, Hints, LINE, OK, TEXT, WARN, bold, colored, dim, faint, spinner,
 };
 
 const FORM_WIDTH: u16 = 80;
@@ -28,7 +28,7 @@ pub(super) fn render(f: &mut Frame, area: Rect, app: &App) -> Hints {
         Constraint::Fill(1),
     ])
     .areas(area);
-    f.render_widget(Paragraph::new(stepper(app, steps.width)), steps);
+    f.render_widget(Stepper(&app.flow), steps);
     let (title, subtitle) = step_heading(app);
     f.render_widget(
         Paragraph::new(heading(title, subtitle)).wrap(Wrap { trim: true }),
@@ -129,50 +129,42 @@ fn step_heading(app: &App) -> (String, String) {
 }
 
 /// Step labels over a progress rule that fills as the order moves on.
-fn stepper(app: &App, width: u16) -> Vec<Line<'static>> {
-    let fl = &app.flow;
-    let mut labels = Vec::new();
-    let mut rule = Vec::new();
-    let gap = "   ";
-    for (i, step) in fl.dir.steps().iter().enumerate() {
-        let lit = i <= fl.step_idx;
-        if i > 0 {
-            labels.push(Span::raw(gap));
-            rule.push(colored(
-                "━".repeat(gap.len()),
-                if lit { ACCENT } else { LINE },
-            ));
+struct Stepper<'a>(&'a Flow);
+
+impl Widget for Stepper<'_> {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        let fl = self.0;
+        let mut labels = Vec::new();
+        let mut rule = Vec::new();
+        let gap = "   ";
+        for (i, step) in fl.dir.steps().iter().enumerate() {
+            let lit = i <= fl.step_idx;
+            let color = if lit { ACCENT } else { LINE };
+            if i > 0 {
+                labels.push(Span::raw(gap));
+                rule.push(colored("━".repeat(gap.len()), color));
+            }
+            let label = step.label(fl.dir);
+            let (mark, text) = match i.cmp(&fl.step_idx) {
+                std::cmp::Ordering::Less => (colored("✓ ", OK), dim(label)),
+                std::cmp::Ordering::Equal => (colored("● ", ACCENT), bold(label)),
+                std::cmp::Ordering::Greater => (faint("○ "), faint(label)),
+            };
+            rule.push(colored("━".repeat(label.chars().count() + 2), color));
+            labels.extend([mark, text]);
         }
-        let label = step.label(fl.dir);
-        let text = match i.cmp(&fl.step_idx) {
-            std::cmp::Ordering::Less => {
-                labels.push(colored("✓ ", OK));
-                Span::styled(label, Style::new().fg(super::DIM))
-            }
-            std::cmp::Ordering::Equal => {
-                labels.push(colored("● ", ACCENT));
-                Span::styled(label, Style::new().fg(TEXT).bold())
-            }
-            std::cmp::Ordering::Greater => {
-                labels.push(faint("○ "));
-                faint(label)
-            }
+        let used: usize = rule.iter().map(Span::width).sum();
+        let tail = if fl.step() == Step::Track {
+            ACCENT
+        } else {
+            LINE
         };
         rule.push(colored(
-            "━".repeat(label.chars().count() + 2),
-            if lit { ACCENT } else { LINE },
+            "━".repeat((area.width as usize).saturating_sub(used)),
+            tail,
         ));
-        labels.push(text);
+        Paragraph::new(vec![Line::from(labels), Line::from(rule)]).render(area, buf);
     }
-    let used: usize = rule.iter().map(Span::width).sum();
-    let rest = (width as usize).saturating_sub(used);
-    let tail = if fl.step() == Step::Track {
-        ACCENT
-    } else {
-        LINE
-    };
-    rule.push(colored("━".repeat(rest), tail));
-    vec![Line::from(labels), Line::from(rule)]
 }
 
 fn form_hints(app: &App) -> Hints {
@@ -207,19 +199,31 @@ fn blank() -> Line<'static> {
     Line::default()
 }
 
+/// Maps a cursor in the raw amount to the same place in its grouped form.
+fn grouped_cursor(grouped: &str, cursor: usize) -> usize {
+    let mut digits = 0;
+    for (i, c) in grouped.chars().enumerate() {
+        if digits == cursor {
+            return i;
+        }
+        if c != ',' {
+            digits += 1;
+        }
+    }
+    grouped.chars().count()
+}
+
 fn amount_step(f: &mut Frame, area: Rect, app: &App) {
     let fl = &app.flow;
     let focus = |x| fl.focus == x;
     let (label, unit) = fl.typed_side();
-    let mut shown = fl.amount.clone();
-    if !shown.value.is_empty() {
-        shown.value = group(&shown.value);
-    }
+    let shown = group(fl.amount.value());
+    let cursor = grouped_cursor(&shown, fl.amount.cursor());
     let mut amount = Vec::new();
     if unit == "NGN" {
         amount.push(bold("₦ "));
     }
-    amount.extend(input(&shown, focus(Field::Amount), "0", 18));
+    amount.extend(text_box(shown, cursor, focus(Field::Amount), "0", 18));
     if unit != "NGN" {
         amount.push(bold(format!(" {unit}")));
     }
@@ -275,133 +279,111 @@ fn amount_step(f: &mut Frame, area: Rect, app: &App) {
             .areas(area);
         (form, card)
     };
-    let block = panel("Amount");
+    let block = panel("Amount", None);
     let inner = block.inner(form);
     f.render_widget(block, form);
     f.render_widget(Paragraph::new(lines), inner);
-    quote_card(f, card, app);
+    f.render_widget(
+        QuoteCard {
+            flow: fl,
+            spinner: spinner(app),
+        },
+        card,
+    );
 }
 
-fn quote_card(f: &mut Frame, area: Rect, app: &App) {
-    let fl = &app.flow;
-    let limit = fl.amount_limit();
-    // An amount outside the limits gets no request, so nothing is pending for it.
-    let pending = (fl.quote_loading || fl.quote_due.is_some()) && limit.is_none();
-    let quote = fl.quote.as_ref().filter(|_| limit.is_none());
-    let title = if pending {
-        format!("Quote {}", spinner(app))
-    } else {
-        "Quote".to_string()
-    };
-    let block = panel(&title);
-    let inner = block.inner(area);
-    f.render_widget(block, area);
-    let w = inner.width;
-    let lines = if let Some(e) = &fl.quote_err {
-        vec![
-            Line::from(vec![
-                colored("✕  ", ERR),
-                Span::styled(e.friendly(), Style::new().fg(TEXT)),
-            ]),
-            blank(),
-            Line::from(faint(format!("Code: {}", e.code))),
-        ]
-    } else if let Some(q) = quote {
-        let (src, dst) = fl.currencies();
-        vec![
-            pair("You pay", vec![bold(money(src, &q.source_amount))], w),
-            pair(
-                "You get",
-                vec![Span::styled(
-                    money(dst, &q.destination_amount),
-                    Style::new().fg(ACCENT).bold(),
-                )],
-                w,
-            ),
-            divider(w),
-            pair(
-                "Rate",
-                vec![Span::raw(format!("₦{} per {}", group(&q.rate), fl.asset))],
-                w,
-            ),
-            pair("Network", vec![Span::raw(network_name(fl.network))], w),
-            blank(),
-            if pending {
-                Line::from(faint("Updating the price…"))
-            } else {
-                Line::from(vec![
-                    colored("● ", ACCENT),
-                    faint("Live rate. Final price on Review."),
-                ])
-            },
-        ]
-    } else if pending {
-        vec![Line::from(vec![
-            colored(format!("{}  ", spinner(app)), ACCENT),
-            dim("Fetching a live price…"),
-        ])]
-    } else {
-        let limits = match fl.dir {
-            Dir::On => "Buy from ₦15,000 up to ₦100,000,000.",
-            Dir::Off => "Sell from 10 USDT or USDC, up to a ₦100,000,000 payout.",
+/// The live price for the amount, laid out like a receipt.
+struct QuoteCard<'a> {
+    flow: &'a Flow,
+    spinner: Span<'static>,
+}
+
+impl Widget for QuoteCard<'_> {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        let fl = self.flow;
+        let limit = fl.amount_limit();
+        // An amount outside the limits gets no request, so nothing is pending for it.
+        let pending = (fl.quote_loading || fl.quote_due.is_some()) && limit.is_none();
+        let quote = fl.quote.as_ref().filter(|_| limit.is_none());
+        let block = panel("Quote", pending.then(|| self.spinner.clone()));
+        let inner = block.inner(area);
+        block.render(area, buf);
+        let rows = if let Some(e) = &fl.quote_err {
+            vec![
+                Row::text(vec![
+                    colored("✕  ", ERR),
+                    Span::styled(e.friendly(), Style::new().fg(TEXT)),
+                ]),
+                Row::Gap,
+                Row::text(faint(format!("Code: {}", e.code))),
+            ]
+        } else if let Some(q) = quote {
+            let (src, dst) = fl.currencies();
+            vec![
+                Row::pair("You pay", bold(money(src, &q.source_amount))),
+                Row::pair(
+                    "You get",
+                    Span::styled(
+                        money(dst, &q.destination_amount),
+                        Style::new().fg(ACCENT).bold(),
+                    ),
+                ),
+                Row::Divider,
+                Row::pair("Rate", format!("₦{} per {}", group(&q.rate), fl.asset)),
+                Row::pair("Network", network_name(fl.network)),
+                Row::Gap,
+                if pending {
+                    Row::text(faint("Updating the price…"))
+                } else {
+                    Row::text(vec![
+                        colored("● ", ACCENT),
+                        faint("Live rate. Final price on Review."),
+                    ])
+                },
+            ]
+        } else if pending {
+            vec![Row::text(vec![
+                self.spinner,
+                dim(" Fetching a live price…"),
+            ])]
+        } else {
+            let limits = match fl.dir {
+                Dir::On => "Buy from ₦15,000 up to ₦100,000,000.",
+                Dir::Off => "Sell from 10 USDT or USDC, up to a ₦100,000,000 payout.",
+            };
+            let settled_limit = limit.is_some() && fl.quote_due.is_none();
+            vec![
+                Row::text(Span::styled(
+                    "Type an amount to see a live price.",
+                    Style::new().fg(TEXT),
+                )),
+                Row::Gap,
+                Row::text(if settled_limit {
+                    colored(limits, WARN)
+                } else {
+                    faint(limits)
+                }),
+            ]
         };
-        vec![
-            Line::from(Span::styled(
-                "Type an amount to see a live price.",
-                Style::new().fg(TEXT),
-            )),
-            blank(),
-            if limit.is_some() && fl.quote_due.is_none() {
-                Line::from(colored(limits, WARN))
-            } else {
-                Line::from(faint(limits))
-            },
-        ]
-    };
-    // A price for an older amount stays visible but greyed out until the new one lands.
-    let lines = if pending && quote.is_some() {
-        lines
-            .into_iter()
-            .map(|line| {
-                let spans = line.spans.into_iter().map(|span| {
-                    let style = span.style.fg(FAINT).remove_modifier(Modifier::BOLD);
-                    span.style(style)
-                });
-                Line::from(spans.collect::<Vec<_>>())
-            })
-            .collect()
-    } else {
-        lines
-    };
-    f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), inner);
-}
-
-/// A thin bar that drains as the quote ages, with the time left.
-fn countdown(secs: i64, width: u16, app: &App) -> Line<'static> {
-    let s = secs.clamp(0, 120) as usize;
-    let (color, label) = match s {
-        0 => (FAINT, format!("{} new price", spinner(app))),
-        1..=30 => (WARN, format!("held {}", clock(s as i64))),
-        _ => (ACCENT, format!("held {}", clock(s as i64))),
-    };
-    let bar = (width as usize).saturating_sub(label.chars().count() + 2);
-    let filled = bar * s / 120;
-    Line::from(vec![
-        colored("━".repeat(filled), color),
-        colored("─".repeat(bar - filled), LINE),
-        Span::raw("  "),
-        colored(label, if s == 0 { super::DIM } else { color }),
-    ])
+        Ledger(rows).render(inner, buf);
+        // A price for an older amount stays visible but greyed out until the new one lands.
+        if pending && quote.is_some() {
+            buf.set_style(
+                inner,
+                Style::new().fg(FAINT).remove_modifier(Modifier::BOLD),
+            );
+        }
+    }
 }
 
 /// A live digit count while typing, and an error once the user tried to move on.
 fn digits_hint(field: &Input, len: usize, focused: bool, tried: bool) -> Option<Span<'static>> {
-    if tried && field.value.len() != len {
+    if tried && field.value().len() != len {
         Some(colored(format!("Needs {len} digits"), ERR))
-    } else if field.value.len() == len {
+    } else if field.value().len() == len {
         Some(colored("✓", OK))
     } else {
-        focused.then(|| faint(format!("{}/{len}", field.value.len())))
+        focused.then(|| faint(format!("{}/{len}", field.value().len())))
     }
 }
 
@@ -425,13 +407,13 @@ fn party_step(f: &mut Frame, area: Rect, app: &App) {
     }
     let required = |empty: bool| (fl.tried && empty).then(|| colored("Required", ERR));
     let email_hint =
-        (fl.tried && !fl.email.value.contains('@')).then(|| colored("Needs a valid email", ERR));
+        (fl.tried && !fl.email.value().contains('@')).then(|| colored("Needs a valid email", ERR));
     lines.extend([
         field(
             "Full name",
             focus(Field::Name),
             input(&fl.name, focus(Field::Name), "As on their ID", INPUT_WIDTH),
-            required(fl.name.value.trim().is_empty()),
+            required(fl.name.value().trim().is_empty()),
         ),
         blank(),
         field(
@@ -460,11 +442,14 @@ fn party_step(f: &mut Frame, area: Rect, app: &App) {
             digits_hint(&fl.bvn, 11, focus(Field::Bvn), fl.tried),
         ),
     ]);
-    let block = panel(if fl.dir == Dir::On {
-        "Payer"
-    } else {
-        "Recipient"
-    });
+    let block = panel(
+        if fl.dir == Dir::On {
+            "Payer"
+        } else {
+            "Recipient"
+        },
+        None,
+    );
     let area = fit(area, lines.len());
     let inner = block.inner(area);
     f.render_widget(block, area);
@@ -528,7 +513,7 @@ fn wallet_step(f: &mut Frame, area: Rect, app: &App) {
             )]));
         }
     }
-    let block = panel("Wallet");
+    let block = panel("Wallet", None);
     let area = fit(area, lines.len());
     let inner = block.inner(area);
     f.render_widget(block, area);
@@ -567,10 +552,7 @@ fn bank_step(f: &mut Frame, area: Rect, app: &App) {
     if focus(Field::Bank) && fl.bank.is_none() {
         let matches = app.bank_matches();
         if app.banks_loading {
-            lines.push(under_field(vec![
-                colored(format!("{} ", spinner(app)), ACCENT),
-                dim("Loading banks…"),
-            ]));
+            lines.push(under_field(vec![spinner(app), dim("Loading banks…")]));
         } else if matches.is_empty() {
             lines.push(under_field(vec![faint("No bank by that name")]));
         }
@@ -584,7 +566,7 @@ fn bank_step(f: &mut Frame, area: Rect, app: &App) {
                 ]
             } else {
                 vec![
-                    Span::styled(name, Style::new().fg(super::DIM)),
+                    Span::styled(name, Style::new().fg(DIM)),
                     faint(format!("  {}", b.code)),
                 ]
             };
@@ -607,10 +589,7 @@ fn bank_step(f: &mut Frame, area: Rect, app: &App) {
     }
     lines.push(blank());
     if fl.resolving {
-        lines.push(under_field(vec![
-            colored(format!("{} ", spinner(app)), ACCENT),
-            dim("Asking the bank…"),
-        ]));
+        lines.push(under_field(vec![spinner(app), dim("Asking the bank…")]));
     } else if let Some(v) = &fl.resolved {
         lines.push(under_field(vec![
             colored("✓ ", OK),
@@ -626,7 +605,7 @@ fn bank_step(f: &mut Frame, area: Rect, app: &App) {
             ERR,
         )]));
     }
-    let block = panel("Bank account");
+    let block = panel("Bank account", None);
     let area = fit(area, lines.len());
     let inner = block.inner(area);
     f.render_widget(block, area);
@@ -634,136 +613,159 @@ fn bank_step(f: &mut Frame, area: Rect, app: &App) {
 }
 
 fn review_step(f: &mut Frame, area: Rect, app: &App) {
-    let fl = &app.flow;
+    let card = ReviewCard {
+        app,
+        spinner: spinner(app),
+    };
+    let width = area.width.min(72);
     let area = Rect {
-        width: area.width.min(72),
+        width,
+        height: card.height(width).min(area.height),
         ..area
     };
-    let w = area.width.saturating_sub(6);
-    let (src, dst) = fl.currencies();
-    let mut lines = Vec::new();
-    if let (Some(p), Some(q)) = (&fl.prev_quote, &fl.quote)
-        && p.rate != q.rate
-    {
-        lines.push(Line::from(vec![
-            colored("▲  ", WARN),
-            colored(
+    f.render_widget(card, area);
+}
+
+/// The whole order on one card, with the button that places it.
+struct ReviewCard<'a> {
+    app: &'a App,
+    spinner: Span<'static>,
+}
+
+impl<'a> ReviewCard<'a> {
+    fn ledger(&self) -> Ledger<'a> {
+        let app = self.app;
+        let fl = &app.flow;
+        let (src, dst) = fl.currencies();
+        let mut rows = Vec::new();
+        if let (Some(p), Some(q)) = (&fl.prev_quote, &fl.quote)
+            && p.rate != q.rate
+        {
+            rows.push(Row::text(colored(
                 format!(
-                    "New price: ₦{} → ₦{} per {}",
+                    "▲  New price: ₦{} → ₦{} per {}",
                     group(&p.rate),
                     group(&q.rate),
                     fl.asset
                 ),
                 WARN,
-            ),
-        ]));
-        lines.push(blank());
-    }
-    if let Some(q) = &fl.quote {
-        lines.push(pair("You pay", vec![bold(money(src, &q.source_amount))], w));
-        lines.push(pair(
-            "You get",
-            vec![Span::styled(
-                money(dst, &q.destination_amount),
-                Style::new().fg(ACCENT).bold(),
-            )],
-            w,
-        ));
-        lines.push(pair(
-            "Rate",
-            vec![Span::raw(format!("₦{} per {}", group(&q.rate), fl.asset))],
-            w,
-        ));
-    }
-    lines.push(pair(
-        "Network",
-        vec![Span::raw(network_name(fl.network))],
-        w,
-    ));
-    lines.push(divider(w));
-    let person = fl.person();
-    match fl.dir {
-        Dir::On => {
-            lines.push(pair(
-                "Wallet",
-                vec![Span::raw(app.destination_address())],
-                w,
-            ));
-            lines.push(pair("Payer", vec![Span::raw(person.name.clone())], w));
+            )));
+            rows.push(Row::Gap);
         }
-        Dir::Off => {
-            let bank = fl.bank.as_ref().map_or(String::new(), |b| b.name.clone());
-            let name = fl
-                .resolved
-                .as_ref()
-                .map_or(String::new(), |v| v.account_name.clone());
-            lines.push(pair("Account", vec![Span::raw(name)], w));
-            lines.push(pair(
-                "",
-                vec![dim(format!("{bank}  ·  {}", app.account_number()))],
-                w,
+        if let Some(q) = &fl.quote {
+            rows.push(Row::pair("You pay", bold(money(src, &q.source_amount))));
+            rows.push(Row::pair(
+                "You get",
+                Span::styled(
+                    money(dst, &q.destination_amount),
+                    Style::new().fg(ACCENT).bold(),
+                ),
             ));
-            lines.push(pair("Recipient", vec![Span::raw(person.name.clone())], w));
+            rows.push(Row::pair(
+                "Rate",
+                format!("₦{} per {}", group(&q.rate), fl.asset),
+            ));
+        }
+        rows.push(Row::pair("Network", network_name(fl.network)));
+        rows.push(Row::Divider);
+        let person = fl.person();
+        match fl.dir {
+            Dir::On => {
+                rows.push(Row::pair("Wallet", app.destination_address()));
+                rows.push(Row::pair("Payer", person.name.clone()));
+            }
+            Dir::Off => {
+                let bank = fl.bank.as_ref().map_or(String::new(), |b| b.name.clone());
+                let name = fl
+                    .resolved
+                    .as_ref()
+                    .map_or(String::new(), |v| v.account_name.clone());
+                rows.push(Row::pair("Account", name));
+                rows.push(Row::pair(
+                    "",
+                    dim(format!("{bank}  ·  {}", app.account_number())),
+                ));
+                rows.push(Row::pair("Recipient", person.name.clone()));
+            }
+        }
+        rows.push(Row::pair("Email", person.email.clone()));
+        rows.push(Row::pair(
+            "NIN · BVN",
+            dim(format!("{}  ·  {}", mask(&person.nin), mask(&person.bvn))),
+        ));
+        Ledger(rows)
+    }
+
+    fn action(&self) -> Line<'static> {
+        let fl = &self.app.flow;
+        let live = self.app.env() == Env::Live;
+        if fl.creating {
+            Line::from(vec![self.spinner.clone(), dim(" Placing the order…")])
+        } else if let Some(e) = &fl.create_err {
+            Line::from(vec![colored("✕  ", ERR), colored(e.friendly(), ERR)])
+        } else if live && fl.confirm_live {
+            Line::from(vec![
+                Span::styled(
+                    "  ↵  Confirm live order  ",
+                    Style::new()
+                        .fg(Color::Rgb(255, 255, 255))
+                        .bg(Color::Rgb(190, 18, 60))
+                        .bold(),
+                ),
+                Span::raw("  "),
+                colored("Press enter again to place it.", ERR),
+            ])
+        } else if live {
+            Line::from(vec![
+                Span::styled(
+                    "  ↵  Place live order  ",
+                    Style::new().fg(BG).bg(ERR).bold(),
+                ),
+                Span::raw("  "),
+                colored("This moves real money.", ERR),
+            ])
+        } else {
+            Line::from(vec![
+                Span::styled("  ↵  Place order  ", Style::new().fg(BG).bg(ACCENT).bold()),
+                Span::raw("  "),
+                keycap("esc"),
+                dim(" to change something"),
+            ])
         }
     }
-    lines.push(pair("Email", vec![Span::raw(person.email.clone())], w));
-    lines.push(pair(
-        "NIN · BVN",
-        vec![dim(format!(
-            "{}  ·  {}",
-            mask(&person.nin),
-            mask(&person.bvn)
-        ))],
-        w,
-    ));
-    lines.push(blank());
-    lines.push(countdown(fl.quote_secs(app.now), w, app));
-    lines.push(blank());
-    let live = app.env() == Env::Live;
-    if fl.creating {
-        lines.push(Line::from(vec![
-            colored(format!("{}  ", spinner(app)), ACCENT),
-            dim("Placing the order…"),
-        ]));
-    } else if let Some(e) = &fl.create_err {
-        lines.push(Line::from(vec![
-            colored("✕  ", ERR),
-            colored(e.friendly(), ERR),
-        ]));
-    } else if live && fl.confirm_live {
-        lines.push(Line::from(vec![
-            Span::styled(
-                "  ↵  Confirm live order  ",
-                Style::new()
-                    .fg(Color::Rgb(255, 255, 255))
-                    .bg(Color::Rgb(190, 18, 60))
-                    .bold(),
-            ),
-            Span::raw("  "),
-            colored("Press enter again to place it.", ERR),
-        ]));
-    } else if live {
-        lines.push(Line::from(vec![
-            Span::styled(
-                "  ↵  Place live order  ",
-                Style::new().fg(BG).bg(ERR).bold(),
-            ),
-            Span::raw("  "),
-            colored("This moves real money.", ERR),
-        ]));
-    } else {
-        lines.push(Line::from(vec![
-            Span::styled("  ↵  Place order  ", Style::new().fg(BG).bg(ACCENT).bold()),
-            Span::raw("  "),
-            keycap("esc"),
-            dim(" to change something"),
-        ]));
+
+    /// Borders and padding take 4 columns of each side together and 3 rows.
+    fn height(&self, width: u16) -> u16 {
+        let inner = width.saturating_sub(6);
+        let action = Paragraph::new(self.action())
+            .wrap(Wrap { trim: false })
+            .line_count(inner) as u16;
+        self.ledger().height(inner) + 3 + action + 3
     }
-    // Leave room for a long error to wrap.
-    let height = (lines.len() as u16 + 5).min(area.height);
-    let area = Rect { height, ..area };
-    let block = panel("Order");
-    let inner = block.inner(area);
-    f.render_widget(block, area);
-    f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
+}
+
+impl Widget for ReviewCard<'_> {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        let block = panel("Order", None);
+        let inner = block.inner(area);
+        block.render(area, buf);
+        let ledger = self.ledger();
+        let [rows, _, countdown, _, action] = Layout::vertical([
+            Constraint::Length(ledger.height(inner.width)),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Fill(1),
+        ])
+        .areas(inner);
+        ledger.render(rows, buf);
+        Countdown {
+            secs: self.app.flow.quote_secs(self.app.now),
+            spinner: self.spinner.clone(),
+        }
+        .render(countdown, buf);
+        Paragraph::new(self.action())
+            .wrap(Wrap { trim: false })
+            .render(action, buf);
+    }
 }

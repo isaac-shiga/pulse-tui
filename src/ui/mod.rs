@@ -1,4 +1,8 @@
-use ratatui::{prelude::*, widgets::Paragraph};
+use ratatui::{
+    prelude::*,
+    widgets::{Block, Borders, Paragraph},
+};
+use throbber_widgets_tui::{BRAILLE_EIGHT, Throbber};
 
 mod components;
 mod flow;
@@ -20,7 +24,6 @@ pub(super) const ACCENT: Color = Color::Rgb(94, 234, 212);
 pub(super) const OK: Color = Color::Rgb(163, 230, 53);
 pub(super) const WARN: Color = Color::Rgb(251, 191, 36);
 pub(super) const ERR: Color = Color::Rgb(251, 113, 133);
-const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const MAX_WIDTH: u16 = 100;
 
 pub(super) type Hints = Vec<(&'static str, &'static str)>;
@@ -41,8 +44,12 @@ pub(super) fn colored<'a>(s: impl Into<std::borrow::Cow<'a, str>>, color: Color)
     Span::styled(s, Style::new().fg(color))
 }
 
-pub(super) fn spinner(app: &App) -> &'static str {
-    SPINNER[app.frame % SPINNER.len()]
+/// The busy spinner, with one space after it.
+pub(super) fn spinner(app: &App) -> Span<'static> {
+    Throbber::default()
+        .throbber_set(BRAILLE_EIGHT)
+        .throbber_style(Style::new().fg(ACCENT))
+        .to_symbol_span(&app.throbber)
 }
 
 /// Blends two colors. `t` runs from 0 (all `a`) to 1 (all `b`).
@@ -58,12 +65,9 @@ pub(super) fn mix(a: Color, b: Color, t: f32) -> Color {
 }
 
 pub fn render(f: &mut Frame, app: &App) {
-    f.render_widget(
-        ratatui::widgets::Block::new().style(Style::new().bg(BG).fg(TEXT)),
-        f.area(),
-    );
+    f.render_widget(Block::new().style(Style::new().bg(BG).fg(TEXT)), f.area());
     let [head, body, foot] = Layout::vertical([
-        Constraint::Length(2),
+        Constraint::Length(LOGO.len() as u16 + 1),
         Constraint::Fill(1),
         Constraint::Length(2),
     ])
@@ -85,24 +89,58 @@ pub fn render(f: &mut Frame, app: &App) {
     footer(f, foot, app, &hints);
 }
 
+/// The Pulse logo, hand-drawn in quadrant blocks for a three-row header.
+/// The first six columns are the mark.
+const LOGO: [&str; 3] = [
+    "▄▟███▙  █▀▙     █        ",
+    "█▌ ▄▟█  █▄▛ █ █ █ ▟█▀ ▟█▙",
+    "███▀▀   █   ▜▄█ █ ▄█▛ ▜▄▄",
+];
+const MARK_COLS: usize = 6;
+
 fn header(f: &mut Frame, area: Rect, app: &App) {
-    let [line, rule] = Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).areas(area);
-    let line = line.inner(Margin::new(2, 0));
-    // The dot beats twice, then rests, like a pulse.
-    let beat = matches!(app.frame % 12, 0 | 1 | 3 | 4);
-    let dot = if beat { ACCENT } else { mix(ACCENT, BG, 0.6) };
-    let crumb = match app.screen {
-        Screen::Home => "",
-        Screen::Flow => app.flow.dir.title(),
-        Screen::Orders => "Orders",
-        Screen::Settings => "Settings",
+    // Live mode tints the rule red, so real money is never ambiguous.
+    let rule = match app.env() {
+        Env::Test => LINE,
+        Env::Live => Color::Rgb(136, 19, 55),
     };
-    let mut left = vec![colored("● ", dot), bold("pulse")];
-    if !crumb.is_empty() {
-        left.push(faint("  /  "));
-        left.push(dim(crumb));
+    let block = Block::new()
+        .borders(Borders::BOTTOM)
+        .border_style(Style::new().fg(rule));
+    let inner = block.inner(area).inner(Margin::new(2, 0));
+    f.render_widget(block, area);
+    // Badges and the breadcrumb sit on the middle row, level with the logo.
+    let middle = Rect {
+        y: inner.y + inner.height / 2,
+        height: 1,
+        ..inner
+    };
+    // Home shows the large logo, so the header leaves it out there.
+    if app.screen != Screen::Home {
+        let logo: Vec<Line> = LOGO
+            .iter()
+            .map(|row| {
+                let mark: String = row.chars().take(MARK_COLS).collect();
+                let word: String = row.chars().skip(MARK_COLS).collect();
+                Line::from(vec![colored(mark, ACCENT), bold(word)])
+            })
+            .collect();
+        f.render_widget(Paragraph::new(logo), inner);
+        let crumb = match app.screen {
+            Screen::Flow => app.flow.dir.title(),
+            Screen::Orders => "Orders",
+            _ => "Settings",
+        };
+        let after_logo = LOGO[0].chars().count() as u16;
+        f.render_widget(
+            Line::from(vec![faint(" /  "), dim(crumb)]),
+            Rect {
+                x: middle.x + after_logo,
+                width: middle.width.saturating_sub(after_logo),
+                ..middle
+            },
+        );
     }
-    f.render_widget(Paragraph::new(Line::from(left)), line);
 
     let key = if app.key().is_empty() {
         colored("no key   ", ERR)
@@ -121,28 +159,15 @@ fn header(f: &mut Frame, area: Rect, app: &App) {
     };
     let mut right = vec![key];
     right.extend(badge);
-    f.render_widget(
-        Paragraph::new(Line::from(right)).alignment(Alignment::Right),
-        line,
-    );
-    // Live mode tints the rule red, so real money is never ambiguous.
-    let color = match app.env() {
-        Env::Test => LINE,
-        Env::Live => Color::Rgb(136, 19, 55),
-    };
-    f.render_widget(
-        Paragraph::new(colored("─".repeat(rule.width as usize), color)),
-        rule,
-    );
+    f.render_widget(Line::from(right).right_aligned(), middle);
 }
 
 fn footer(f: &mut Frame, area: Rect, app: &App, hints: &Hints) {
-    let [rule, line] = Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).areas(area);
-    f.render_widget(
-        Paragraph::new(colored("─".repeat(rule.width as usize), LINE)),
-        rule,
-    );
-    let line = line.inner(Margin::new(2, 0));
+    let block = Block::new()
+        .borders(Borders::TOP)
+        .border_style(Style::new().fg(LINE));
+    let line = block.inner(area).inner(Margin::new(2, 0));
+    f.render_widget(block, area);
     if let Some(t) = &app.toast {
         let (icon, color) = match t.kind {
             ToastKind::Info => ("●", ACCENT),

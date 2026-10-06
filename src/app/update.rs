@@ -9,6 +9,7 @@ impl App {
     pub fn tick(&mut self, now: Instant) {
         self.now = now;
         self.frame = self.frame.wrapping_add(1);
+        self.throbber.calc_next();
         if self.toast.as_ref().is_some_and(|t| now >= t.until) {
             self.toast = None;
         }

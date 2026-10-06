@@ -151,7 +151,7 @@ impl App {
     }
 
     pub fn bank_matches(&self) -> Vec<&Bank> {
-        let q = self.flow.bank_query.value.to_lowercase();
+        let q = self.flow.bank_query.value().to_lowercase();
         self.banks
             .iter()
             .filter(|b| b.name.to_lowercase().contains(&q))
@@ -163,7 +163,7 @@ impl App {
         if self.env() == Env::Test {
             sandbox::address(self.flow.outcome, self.flow.network).to_string()
         } else {
-            self.flow.address.value.trim().to_string()
+            self.flow.address.value().trim().to_string()
         }
     }
 
@@ -171,7 +171,7 @@ impl App {
         if self.env() == Env::Test {
             OUTCOMES[self.flow.outcome].account.to_string()
         } else {
-            self.flow.account.value.clone()
+            self.flow.account.value().to_string()
         }
     }
 
@@ -219,11 +219,12 @@ impl App {
             }
             KeyCode::Tab | KeyCode::Down => self.focus_at(pos + 1),
             KeyCode::BackTab | KeyCode::Up => self.focus_at(pos.saturating_sub(1)),
-            KeyCode::Left | KeyCode::Right => {
-                if let Some(f) = focus {
-                    self.cycle(f, if key.code == KeyCode::Right { 1 } else { -1 });
-                }
-            }
+            KeyCode::Left | KeyCode::Right => match focus {
+                // Text fields move their cursor. The amount swaps sides instead.
+                Some(f) if f.is_text() => self.edit(f, &key),
+                Some(f) => self.cycle(f, if key.code == KeyCode::Right { 1 } else { -1 }),
+                None => {}
+            },
             KeyCode::Enter => self.advance(),
             _ => {
                 if let Some(f) = focus {
@@ -333,7 +334,7 @@ impl App {
             return;
         }
         match field {
-            Field::Amount if f.amount.value.is_empty() => {
+            Field::Amount if f.amount.value().is_empty() => {
                 f.quote = None;
                 f.quote_err = None;
                 f.quote_due = None;
@@ -385,7 +386,7 @@ impl App {
             }
             Step::Wallet => {
                 if self.env() == Env::Live
-                    && !address_valid(self.flow.network, self.flow.address.value.trim())
+                    && !address_valid(self.flow.network, self.flow.address.value().trim())
                 {
                     self.flow.tried = true;
                     return;
@@ -400,7 +401,7 @@ impl App {
                     };
                     return self.toast(ToastKind::Error, text);
                 };
-                if self.flow.name.value.is_empty() {
+                if self.flow.name.value().is_empty() {
                     let name = v.account_name.clone();
                     self.flow.name.set(name);
                 }
@@ -473,10 +474,10 @@ impl App {
         }
         let f = &self.flow;
         let party = PartyRequest {
-            name: f.name.value.trim().to_string(),
-            email: f.email.value.trim().to_string(),
-            nin: f.nin.value.clone(),
-            bvn: f.bvn.value.clone(),
+            name: f.name.value().trim().to_string(),
+            email: f.email.value().trim().to_string(),
+            nin: f.nin.value().to_string(),
+            bvn: f.bvn.value().to_string(),
         };
         let request = match f.dir {
             Dir::On => CreateOrderRequest::Onramp(OnrampRequest {
@@ -610,7 +611,12 @@ impl App {
             }
             KeyCode::Enter => {
                 if let Some(order) = self.orders.items.get(self.orders.sel) {
-                    self.orders.detail = Some(Tracker::from_list(order.clone(), self.now));
+                    // Fetch on the key press, not on the next tick.
+                    self.jobs.push(Job::Order {
+                        target: Target::Detail,
+                        id: order.id.clone(),
+                    });
+                    self.orders.detail = Some(Tracker::from_list(order.clone()));
                 }
             }
             KeyCode::Char('r') => self.load_orders(None),
@@ -640,8 +646,8 @@ impl App {
             KeyCode::Left | KeyCode::Right if s.focus == 0 => s.env = s.env.toggle(),
             KeyCode::Enter => {
                 self.config.env = s.env;
-                self.config.test_key = s.test_key.value.trim().to_string();
-                self.config.live_key = s.live_key.value.trim().to_string();
+                self.config.test_key = s.test_key.value().trim().to_string();
+                self.config.live_key = s.live_key.value().trim().to_string();
                 self.save_config();
                 self.toast(ToastKind::Success, "Settings saved");
                 self.screen = Screen::Home;

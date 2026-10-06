@@ -64,7 +64,7 @@ pub(super) fn render(f: &mut Frame, area: Rect, app: &App) -> Hints {
         height: fields.height.min(10),
         ..fields
     };
-    let block = panel("Environment and keys");
+    let block = panel("Environment and keys", None);
     let inner = block.inner(fields);
     f.render_widget(block, fields);
     f.render_widget(Paragraph::new(form), inner);
