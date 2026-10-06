@@ -2,9 +2,25 @@
 
 A terminal app for moving between stablecoins and local currencies with live Pulse quotes.
 
+## Install
+
+With [mise](https://mise.jdx.dev):
+
 ```sh
-cargo run --release
+mise use -g github:isaac-shiga/pulse-tui
 ```
+
+The repository is private, so mise needs a `GITHUB_TOKEN` that can read it.
+
+Each [release](https://github.com/isaac-shiga/pulse-tui/releases) also has archives for Linux and macOS on x86_64 and arm64, with a `SHA256SUMS` file. To build from source:
+
+```sh
+cargo install --git https://github.com/isaac-shiga/pulse-tui --locked
+```
+
+## Use
+
+Run `pulse-tui`.
 
 Add your keys under Settings (`4`), or set `PULSE_TEST_KEY` and `PULSE_LIVE_KEY`. Press `e` on the home screen to switch between test and live.
 
