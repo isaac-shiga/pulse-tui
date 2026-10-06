@@ -8,8 +8,10 @@ use crate::app::Input;
 use super::format::clock;
 use super::{ACCENT, BG, DIM, FAINT, LINE, RAISED, TEXT, WARN, bold, colored, dim};
 
-const LABEL_WIDTH: usize = 14;
+pub(super) const LABEL_WIDTH: usize = 14;
 pub(super) const INPUT_WIDTH: usize = 30;
+/// Where [`field`] values start: the focus bar plus the label column.
+pub(super) const VALUE_COLUMN: u16 = LABEL_WIDTH as u16 + 2;
 const QUOTE_LIFETIME: i64 = 120;
 
 /// A rounded, hairline panel with a quiet title, and a spinner while busy.
@@ -61,7 +63,7 @@ pub(super) fn field<'a>(
 
 /// Indents a line to the value column of [`field`].
 pub(super) fn under_field(mut spans: Vec<Span<'_>>) -> Line<'_> {
-    spans.insert(0, Span::raw(" ".repeat(LABEL_WIDTH + 2)));
+    spans.insert(0, Span::raw(" ".repeat(VALUE_COLUMN as usize)));
     Line::from(spans)
 }
 

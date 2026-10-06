@@ -8,8 +8,8 @@ use crate::app::sandbox::{self, OUTCOMES};
 use crate::app::{ASSETS, App, Dir, Field, Flow, Input, Limit, Step, networks_for};
 
 use super::components::{
-    Countdown, INPUT_WIDTH, Ledger, Row, field, heading, input, keycap, panel, segmented, selector,
-    text_box, under_field,
+    Countdown, INPUT_WIDTH, Ledger, Row, VALUE_COLUMN, field, heading, input, keycap, panel,
+    segmented, selector, text_box, under_field,
 };
 use super::format::{group, mask, money, network_name};
 use super::orders::{order_heading, order_view};
@@ -20,20 +20,20 @@ use super::{
 const FORM_WIDTH: u16 = 80;
 
 pub(super) fn render(f: &mut Frame, area: Rect, app: &App) -> Hints {
+    let (title, subtitle) = step_heading(app);
+    let head_text = Paragraph::new(heading(title, subtitle)).wrap(Wrap { trim: true });
+    // A subtitle can wrap on a narrow terminal, so the heading takes the rows it needs.
+    let head_rows = head_text.line_count(area.width) as u16;
     let [steps, _, head, _, content] = Layout::vertical([
         Constraint::Length(2),
         Constraint::Length(1),
-        Constraint::Length(2),
+        Constraint::Length(head_rows),
         Constraint::Length(1),
         Constraint::Fill(1),
     ])
     .areas(area);
     f.render_widget(Stepper(&app.flow), steps);
-    let (title, subtitle) = step_heading(app);
-    f.render_widget(
-        Paragraph::new(heading(title, subtitle)).wrap(Wrap { trim: true }),
-        head,
-    );
+    f.render_widget(head_text, head);
     let form = form_hints(app);
     let narrow = Rect {
         width: content.width.min(FORM_WIDTH),
@@ -312,7 +312,10 @@ impl Widget for QuoteCard<'_> {
             vec![
                 Row::text(vec![
                     colored("✕  ", ERR),
-                    Span::styled(e.friendly(), Style::new().fg(TEXT)),
+                    Span::styled(
+                        e.friendly_or("Pulse could not price this amount. Try again."),
+                        Style::new().fg(TEXT),
+                    ),
                 ]),
                 Row::Gap,
                 Row::text(faint(format!("Code: {}", e.code))),
@@ -588,28 +591,58 @@ fn bank_step(f: &mut Frame, area: Rect, app: &App) {
         ));
     }
     lines.push(blank());
-    if fl.resolving {
-        lines.push(under_field(vec![spinner(app), dim("Asking the bank…")]));
+    // The account status wraps inside the value column, under the fields.
+    let status: Vec<Line> = if fl.resolving {
+        vec![Line::from(vec![spinner(app), dim("Asking the bank…")])]
     } else if let Some(v) = &fl.resolved {
-        lines.push(under_field(vec![
-            colored("✓ ", OK),
-            bold(v.account_name.clone()),
-            dim(format!("  ·  {}", v.bank_name)),
-        ]));
-        lines.push(under_field(vec![faint(
-            "Is this the right person? Press enter to continue.",
-        )]));
+        vec![
+            Line::from(vec![
+                colored("✓ ", OK),
+                bold(v.account_name.clone()),
+                dim(format!("  ·  {}", v.bank_name)),
+            ]),
+            Line::from(faint("Is this the right person? Press enter to continue.")),
+        ]
     } else if let Some(e) = &fl.resolve_err {
-        lines.push(under_field(vec![colored(
-            format!("✕ {}", e.friendly()),
-            ERR,
-        )]));
-    }
+        vec![
+            Line::from(colored(
+                format!(
+                    "✕ {}",
+                    e.friendly_or(
+                        "The bank could not confirm this account. \
+                         Check the number, or try again in a moment."
+                    )
+                ),
+                ERR,
+            )),
+            Line::from(faint(format!("Code: {}", e.code))),
+        ]
+    } else {
+        Vec::new()
+    };
+    let status = Paragraph::new(status).wrap(Wrap { trim: true });
+    // Borders and padding take 6 columns.
+    let status_width = area.width.min(FORM_WIDTH).saturating_sub(6 + VALUE_COLUMN);
+    let status_rows = status.line_count(status_width) as u16;
     let block = panel("Bank account", None);
-    let area = fit(area, lines.len());
+    let area = Rect {
+        height: (lines.len() as u16 + status_rows + 4).min(area.height),
+        ..area
+    };
     let inner = block.inner(area);
     f.render_widget(block, area);
-    f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
+    let [fields, rest] =
+        Layout::vertical([Constraint::Length(lines.len() as u16), Constraint::Fill(1)])
+            .areas(inner);
+    f.render_widget(Paragraph::new(lines), fields);
+    f.render_widget(
+        status,
+        Rect {
+            x: rest.x + VALUE_COLUMN,
+            width: rest.width.saturating_sub(VALUE_COLUMN),
+            ..rest
+        },
+    );
 }
 
 fn review_step(f: &mut Frame, area: Rect, app: &App) {
@@ -702,7 +735,14 @@ impl<'a> ReviewCard<'a> {
         if fl.creating {
             Line::from(vec![self.spinner.clone(), dim(" Placing the order…")])
         } else if let Some(e) = &fl.create_err {
-            Line::from(vec![colored("✕  ", ERR), colored(e.friendly(), ERR)])
+            Line::from(vec![
+                colored("✕  ", ERR),
+                colored(
+                    e.friendly_or("Pulse could not place the order. Try again."),
+                    ERR,
+                ),
+                faint(format!("  {}", e.code)),
+            ])
         } else if live && fl.confirm_live {
             Line::from(vec![
                 Span::styled(

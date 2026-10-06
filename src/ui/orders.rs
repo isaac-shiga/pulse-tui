@@ -304,9 +304,10 @@ impl Widget for ProgressPanel<'_> {
         }
         rows.push(LedgerRow::Gap);
         rows.push(LedgerRow::text(match (o.status, &t.error) {
-            (_, Some(e)) if !o.status.is_terminal() => {
-                Line::from(vec![colored("✕  ", ERR), colored(e.friendly(), ERR)])
-            }
+            (_, Some(e)) if !o.status.is_terminal() => Line::from(vec![
+                colored("✕  ", ERR),
+                colored(e.friendly_or("Could not refresh the order. Retrying."), ERR),
+            ]),
             (Status::Completed, _) => Line::from(colored("✓  Settled.", OK)),
             (Status::Expired, _) => Line::from(colored("Not funded in time.", WARN)),
             (Status::Failed, _) => Line::from(colored("Pulse could not settle this order.", ERR)),
@@ -332,17 +333,16 @@ fn status_color(s: Status) -> Color {
 pub(super) fn render(f: &mut Frame, area: Rect, app: &App) -> Hints {
     let view = &app.orders;
     if let Some(t) = &view.detail {
+        let (title, subtitle) = order_heading(&t.order);
+        let head_text = Paragraph::new(heading(title, subtitle)).wrap(Wrap { trim: true });
+        let head_rows = head_text.line_count(area.width) as u16;
         let [head, _, body] = Layout::vertical([
-            Constraint::Length(2),
+            Constraint::Length(head_rows),
             Constraint::Length(1),
             Constraint::Fill(1),
         ])
         .areas(area);
-        let (title, subtitle) = order_heading(&t.order);
-        f.render_widget(
-            Paragraph::new(heading(title, subtitle)).wrap(Wrap { trim: true }),
-            head,
-        );
+        f.render_widget(head_text, head);
         order_view(f, body, t, app);
         return vec![("↑↓", "choose"), ("c", "copy"), ("esc", "back")];
     }
@@ -387,7 +387,10 @@ pub(super) fn render(f: &mut Frame, area: Rect, app: &App) -> Hints {
     if let Some(e) = &view.error {
         f.render_widget(
             Paragraph::new(vec![
-                Line::from(vec![colored("✕  ", ERR), bold(e.friendly())]),
+                Line::from(vec![
+                    colored("✕  ", ERR),
+                    bold(e.friendly_or("Could not load your orders.")),
+                ]),
                 Line::from(faint("   Press r to try again.")),
             ])
             .wrap(Wrap { trim: false }),

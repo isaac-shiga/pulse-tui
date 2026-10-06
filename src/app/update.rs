@@ -117,7 +117,10 @@ impl App {
                 self.banks_loading = false;
                 match res {
                     Ok(banks) => self.banks = banks,
-                    Err(e) => self.toast(ToastKind::Error, e.friendly()),
+                    Err(e) => self.toast(
+                        ToastKind::Error,
+                        e.friendly_or("Could not load the bank list."),
+                    ),
                 }
             }
             Msg::Resolved { seq, res } => {

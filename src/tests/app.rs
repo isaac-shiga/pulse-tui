@@ -409,3 +409,46 @@ fn a_zero_amount_shows_no_price_and_sends_nothing() {
             .any(|j| matches!(j, Job::Quote { .. }))
     );
 }
+
+#[test]
+fn a_bank_error_shows_a_plain_sentence_not_the_provider_message() {
+    let mut app = app();
+    app.screen = crate::app::Screen::Flow;
+    app.flow = crate::app::Flow::new(crate::app::Dir::Off);
+    app.flow.step_idx = 1; // bank account
+    app.flow.resolve_err = Some(ApiError::new(
+        "provider_error",
+        "rubies name enquiry failed: code=96 message=Destination System malfunction",
+    ));
+
+    let s = screen(&app);
+    assert!(!s.contains("rubies"), "{s}");
+    assert!(
+        s.contains("The bank could not confirm this account."),
+        "{s}"
+    );
+    assert!(s.contains("try again in a moment."), "{s}");
+    assert!(s.contains("Code: provider_error"), "{s}");
+}
+
+#[test]
+fn a_long_step_subtitle_wraps_instead_of_being_cut() {
+    let mut app = app();
+    app.screen = crate::app::Screen::Flow;
+    app.flow = crate::app::Flow::new(crate::app::Dir::Off);
+    app.flow.step_idx = 1; // bank account
+
+    let mut term = Terminal::new(TestBackend::new(60, 30)).unwrap();
+    term.draw(|f| ui::render(f, &app)).unwrap();
+    let buf = term.backend().buffer();
+    let text: String = (0..buf.area.height)
+        .map(|y| {
+            (0..buf.area.width)
+                .map(|x| buf[(x, y)].symbol())
+                .collect::<String>()
+                + " "
+        })
+        .collect();
+    let words = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(words.contains("fills in a reserved account."), "{words}");
+}

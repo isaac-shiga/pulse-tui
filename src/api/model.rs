@@ -51,8 +51,10 @@ impl ApiError {
         }
     }
 
-    /// One sentence the user can act on.
-    pub fn friendly(&self) -> String {
+    /// One sentence the user can act on. Known codes get their own sentence.
+    /// Any other code gets `fallback`, because a raw server message can carry
+    /// internal details from a bank or provider.
+    pub fn friendly_or(&self, fallback: &str) -> String {
         let text = match self.code.as_str() {
             "invalid_amount" => {
                 "This amount is outside the limits. Buy ₦15,000 to ₦100,000,000. \
@@ -67,9 +69,8 @@ impl ApiError {
             "unauthorized" => "The API key is not valid for this environment. Check Settings.",
             "rate_limited" => "Too many requests. Wait a minute, then try again.",
             "service_unavailable" => "Pulse is not available right now. Try again soon.",
-            "network" => return format!("Cannot reach Pulse: {}", self.message),
-            _ if self.message.is_empty() => return self.code.clone(),
-            _ => return self.message.clone(),
+            "network" => "Cannot reach Pulse. Check your connection, then try again.",
+            _ => fallback,
         };
         text.to_string()
     }
