@@ -89,14 +89,9 @@ pub fn render(f: &mut Frame, app: &App) {
     footer(f, foot, app, &hints);
 }
 
-/// The Pulse logo, hand-drawn in quadrant blocks for a three-row header.
-/// The first six columns are the mark.
-const LOGO: [&str; 3] = [
-    "▄▟███▙  █▀▙     █        ",
-    "█▌ ▄▟█  █▄▛ █ █ █ ▟█▀ ▟█▙",
-    "███▀▀   █   ▜▄█ █ ▄█▛ ▜▄▄",
-];
-const MARK_COLS: usize = 6;
+/// The Pulse mark in quadrant blocks, 4 pixels tall. It starts half a row
+/// down, so it centers on the middle row with the text beside it.
+const LOGO: [&str; 3] = [" ▄▄▄", "█ ▄█", "▀▀  "];
 
 fn header(f: &mut Frame, area: Rect, app: &App) {
     // Live mode tints the rule red, so real money is never ambiguous.
@@ -119,11 +114,7 @@ fn header(f: &mut Frame, area: Rect, app: &App) {
     if app.screen != Screen::Home {
         let logo: Vec<Line> = LOGO
             .iter()
-            .map(|row| {
-                let mark: String = row.chars().take(MARK_COLS).collect();
-                let word: String = row.chars().skip(MARK_COLS).collect();
-                Line::from(vec![colored(mark, ACCENT), bold(word)])
-            })
+            .map(|row| colored(*row, ACCENT).into())
             .collect();
         f.render_widget(Paragraph::new(logo), inner);
         let crumb = match app.screen {
@@ -133,7 +124,7 @@ fn header(f: &mut Frame, area: Rect, app: &App) {
         };
         let after_logo = LOGO[0].chars().count() as u16;
         f.render_widget(
-            Line::from(vec![faint(" /  "), dim(crumb)]),
+            Line::from(vec![faint("  /  "), dim(crumb)]),
             Rect {
                 x: middle.x + after_logo,
                 width: middle.width.saturating_sub(after_logo),
